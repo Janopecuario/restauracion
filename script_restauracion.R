@@ -1,14 +1,12 @@
 # 0.VARIABLES GLOBALES ####
 rm(list=ls())
 setwd("~/restauracion")
-# library(remotes)
-# remotes::install_github("geoSABINA/sabinaNSDM")
-# remotes::install_github("N-SDM/covsel")
-packages<-c("raster", "biomod2", "dismo","mgcv",
+
+packages<-c("raster", "biomod2", "dismo","mgcv","raster",
             "rasterVis","adegenet","gstat","shapefiles",
             "sp","ggfortify","reshape","spatialEco",
             "tidyverse","rgbif","sabinaNSDM",
-            "CoordinateCleaner","geodata","sf")
+            "CoordinateCleaner","geodata","sf","tidyverse","rnaturalearth")
 sapply(packages, require, character.only=T)
 
 UTMproj<-"+proj=utm +zone=28 +ellps=WGS84 +datum=WGS84 +units=m +no_defs"
@@ -26,14 +24,15 @@ presence.absence.raster <- function (mask.raster,species.data,raster.label="") {
 }
 
 # 1.PREPARACIÓN PREDICTORES ####
-spain<- st_read("ll_autonomicas_inspire_peninbal_etrs89.shp") %>% st_union()
+spain<- ne_countries(country="Spain",type="countries")
 
-#correr 1 vez
 variables_raw<- worldclim_country(country="ESP", 
                                var="bio", 
                                path=getwd(), 
                                version="2.1")
 variables <- variables_raw %>% crop(spain)
+
+
 mask <- variables$wc2.1_30s_bio_1
 
 # 2.PREPARACION DATOS OCURRENCIA ####
@@ -50,15 +49,15 @@ mask <- variables$wc2.1_30s_bio_1
   
   raw_occurrences_data <- raw_occurrences$data
   raw_occurrences_data <- raw_occurrences_data %>%
-    rename(y=2,x=3,precision=4,date=5) %>%
+    dplyr::rename(y=2,x=3,precision=4,date=5) %>%
     mutate(date=as.Date(date)) 
   dim_ini <- nrow(raw_occurrences_data)
   filtered_occurrences_data <- raw_occurrences_data %>%  
     filter (precision < 1000) %>% 
-    select(x,y,date) %>% relocate(x, .before=y) %>% 
+    dplyr::select(x,y,date) %>% relocate(x, .before=y) %>% 
     arrange(date)
 occurrences <- filtered_occurrences_data %>% 
-  select(x,y)
+  dplyr::select(x,y)
   dim_end <- nrow(occurrences)
 
 flags <- clean_coordinates(x = raw_occurrences, 
@@ -69,39 +68,40 @@ flags <- clean_coordinates(x = raw_occurrences,
                                       "equal", "zeros", "countries"))
 plot(mask)
 points(occurrences$x,occurrences$y,col="red",pch=16)
+
+
+
+# Paso 1: Convertir a objeto sf
+sf_obj <- st_as_sf(occurrences, coords = c("x", "y"), crs = geoproj)
+
+# Paso 2: Reproyectar
+sf_obj_UTM <- st_transform(sf_obj, crs = UTMproj) %>% 
+st_coordinates() %>% as.data.frame() %>% 
+  dplyr::rename(x=X,y=Y)
+
  
 # 2.2 Limpieza
 # 3.MODELIZACIÓN Y VALIDACIÓN ####
 
-presencias<-as.data.frame(presence.absence.raster(mask,occurrences,raster.label=especie),xy=TRUE)
+presencias<-as.data.frame(presence.absence.raster(mask,sf_obj_UTM,raster.label=especie),xy=TRUE)
 presencias.na<-presencias[,3]
 presencias.na[presencias.na==0]="NA"
 presencias.na<-cbind(presencias[,1:2],presencias.na)
-colnames(viola.na)<-c("x","y","viola")
-setwd("C:/Users/agonz/Documents/Viola/Tenerife/Canadas")
-bio01<-aggregate(raster("bio01.asc"),fac=4)
-pet<-aggregate(raster("pet.asc"),fac=4)
-bio12<-aggregate(raster("bio12.asc"),fac=4)
-tpi<-raster("C:/Users/agonz/Documents/Viola/Tenerife/Canadas/tpi.asc")
-bio19<-aggregate(raster("bio19.asc"),fac=4)
-predictores<-stack(pet,
-                   #bio19,
-                   bio01,bio12,slope,tpi)
-setwd("C:/Users/agonz/Documents/Viola")
-myRespName <- 'viola'
-myResp <- as.numeric(viola.na[,myRespName])
+colnames(presencias.na)<-c("x","y",especie)
+
+myRespName <- especie
+myResp <- as.numeric(presencias.na[,myRespName])
 myResp[myResp == 2]  <- "NA"
 myResp<-as.numeric(myResp)
-myRespXY <- viola.na[,c("x","y")]
+myRespXY <- presencias.na[,c("x","y")]
 
-# the name of studied species
-myRespName <- 'viola'
+
 # the presence/absences data for our species
-myResp <- as.numeric(viola.na[,myRespName])
+myResp <- as.numeric(presencias.na[,myRespName])
 myResp[myResp == 2]  <- "NA"
 myResp<-as.numeric(myResp)
 # the XY coordinates of species data
-myRespXY <- viola.na[,c("x","y")]
+myRespXY <- presencias.na[,c("x","y")]
 # load the environmental raster layers (could be .img, ArcGIS
 
 datos<-BIOMOD_FormatingData(resp.var=myResp,
@@ -112,11 +112,11 @@ datos<-BIOMOD_FormatingData(resp.var=myResp,
                             eval.expl.var = NULL,
                             eval.resp.xy = NULL,
                             PA.nb.rep = 2,
-                            PA.nb.absences = nrow(viola.coords)*6,
+                            PA.nb.absences = nrow(presencias.coords)*6,
                             PA.strategy = 'random',
                             na.rm = TRUE)
 # rasters or any supported format by the raster package)
-setwd("C:/Users/agonz/Documents/Viola")
+setwd("C:/Users/agonz/Documents/presencias")
 rm(myRespXY,myResp,bio01,bio12,tpi,slope,pet)
 
 #### 5.2 MODELING ####
@@ -124,21 +124,20 @@ modelos <- BIOMOD_Modeling(
   datos,
   models = c('GBM','RF',"GLM","GAM"),
   #models.options = myBiomodOption,
-  NbRunEval=3,
-  DataSplit=80,
-  VarImport=1,
+  #NbRunEval=3,
+  CV.perc=0.8,
+  var.import=0,
   prevalence=0.5,
-  models.eval.meth = c("ROC",'TSS'),
-  SaveObj = TRUE,
-  rescal.all.models = TRUE,
-  do.full.models = FALSE,
-  modeling.id = paste(myRespName,"FirstModeling",sep=""))
+  metric.eval = c("ROC",'TSS'),
+  #SaveObj = FALSE,
+  #rescal.all.models = TRUE,
+  CV.do.full.models = FALSE,
+  modeling.id = myRespName)
 
-rm(datos)
 
 proj.modelos<-BIOMOD_Projection(modelos,
-              new.env=predictores,
-              proj.name="viola",
+              new.env=biovars,
+              proj.name=especie,
               xy.new.env = NULL,
               selected.models = 'all',
               binary.meth = "TSS",
@@ -175,9 +174,9 @@ ensemble.pres.mean.weight<-BIOMOD_EnsembleForecasting( modelos.ensemble.mean.wei
                                            total.consensus=TRUE,
                                            compress = TRUE)
 
-setwd("C:/Users/agonz/Documents/Viola")
-writeRaster(ensemble.pres.mean.weight@proj@val$viola_EMwmeanByROC_mergedAlgo_mergedRun_mergedData,"presenteTFM.tiff",overwrite=TRUE)
-save.image("C:/Users/agonz/Documents/Viola/viola.RData")
+setwd("C:/Users/agonz/Documents/presencias")
+writeRaster(ensemble.pres.mean.weight@proj@val$presencias_EMwmeanByROC_mergedAlgo_mergedRun_mergedData,"presenteTFM.tiff",overwrite=TRUE)
+save.image("C:/Users/agonz/Documents/presencias/presencias.RData")
 importance_indiv<-get_variables_importance(modelos, as.data.frame=TRUE)
 importance_modelos<-get_variables_importance(modelos.ensemble.mean.weight,as.data.frame=TRUE)
 
@@ -194,22 +193,22 @@ model<-i
    for (h in years){
      year<-h
 message(paste(model, rcp, year,sep=" "),appendLF = TRUE)  
-setwd(paste("C:/Users/agonz/Documents/Viola/TenerifeCC/Canadas",model,rcp,year,sep="/"))
+setwd(paste("C:/Users/agonz/Documents/presencias/TenerifeCC/Canadas",model,rcp,year,sep="/"))
 bio01<-raster("bio01.asc")
 bio12<-raster("bio12.asc")
 pet<-raster("pet.asc")
-tpi<-raster("C:/Users/agonz/Documents/Viola/Tenerife/Canadas/tpi.asc")
-slope<-aggregate(raster("C:/Users/agonz/Documents/Viola/Tenerife/Canadas/slope.asc"),fac=4)
+tpi<-raster("C:/Users/agonz/Documents/presencias/Tenerife/Canadas/tpi.asc")
+slope<-aggregate(raster("C:/Users/agonz/Documents/presencias/Tenerife/Canadas/slope.asc"),fac=4)
 bio19<-raster("bio19.asc")
 
 predictores<-stack(pet,
                    #bio19,
                    bio01,bio12,slope,tpi)
 message("projecting",appendLF = TRUE)
-setwd("C:/Users/agonz/Documents/Viola")
+setwd("C:/Users/agonz/Documents/presencias")
 proj.modelos<-BIOMOD_Projection(modelos,
                                 new.env=predictores,
-                                proj.name="viola",
+                                proj.name="presencias",
                                 xy.new.env = NULL,
                                 selected.models = 'all',
                                 binary.meth = "TSS",
@@ -246,9 +245,9 @@ ensemble.pres.mean.weight<-BIOMOD_EnsembleForecasting( modelos.ensemble.mean.wei
                                                        total.consensus=TRUE,
                                                        compress = TRUE)
 message("writing raster",appendLF = TRUE)
-plot(ensemble.pres.mean.weight@proj@val$viola_EMwmeanByROC_mergedAlgo_mergedRun_mergedData, main="Ensemble modeling")
-writeRaster(ensemble.pres.mean.weight@proj@val$viola_EMwmeanByROC_mergedAlgo_mergedRun_mergedData,paste(model,rcp,year,"TFM.tiff",sep=""),overwrite=TRUE)
-save.image("C:/Users/agonz/Documents/Viola/viola.RData")
+plot(ensemble.pres.mean.weight@proj@val$presencias_EMwmeanByROC_mergedAlgo_mergedRun_mergedData, main="Ensemble modeling")
+writeRaster(ensemble.pres.mean.weight@proj@val$presencias_EMwmeanByROC_mergedAlgo_mergedRun_mergedData,paste(model,rcp,year,"TFM.tiff",sep=""),overwrite=TRUE)
+save.image("C:/Users/agonz/Documents/presencias/presencias.RData")
 
    }
   }
@@ -260,7 +259,7 @@ ggplot(evaluations,aes(x=model,y=Testing.data))+ stat_boxplot(geom ='errorbar') 
   xlab("Algoritmo")+ylab("Puntuación")+facet_grid(.~Eval.metric)+labs(fill="Modelo")+theme_bw()
 
 presente<-raster("presenteTFM.asc")
-setwd("C:/Users/agonz/Documents/Viola")
+setwd("C:/Users/agonz/Documents/presencias")
 canadas<-raster("canadas.asc",crs=geoproj)
 slope<-terrain(canadas,opt="slope")
 aspect<-terrain(canadas,opt="aspect")
