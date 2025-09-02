@@ -1,0 +1,228 @@
+# 0. Constantes globales ----
+
+packages<-c("raster", "biomod2", "dismo","mgcv","raster",
+            "rasterVis","gstat","shapefiles",
+            "sp","ggfortify","reshape","spatialEco",
+            "tidyverse","rgbif","sabinaNSDM","stringi",
+            "CoordinateCleaner","geodata","sf","tidyverse","rnaturalearth",
+            "glmnet","data.table","covsel","stars")
+sapply(packages, require, character.only=T, quietly = FALSE)
+
+#CRSs por si hay que reproyectar
+UTMproj<-"+proj=utm +zone=28 +ellps=WGS84 +datum=WGS84 +units=m +no_defs"
+geoproj<-"+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
+extent_regional<-extent(c(-10,4.28,34,44.5)) #coordenadas peninsula + NAfrica
+extent_global<-extent(c(-16.47,93.53,18.24,78))
+
+## 0.1 Rutas globales----
+# Ir metiendo rutas aquí según empecemos a mover los datos
+## 0.1.1 CORINE LAND COVER----
+#ruta_clc<-"P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/UE/Copernicus/CLC+BB_2023/ES_CLC+BB_Bruto.tif"
+#clc<-raster(ruta_clc) %>% projectRaster(crs=geoproj)
+clc <- st_read("~/Corine/clc.shp") %>%
+  mutate(CLASS_BIN = if_else(startsWith(CODE_18, "3"), 1, 0))
+template <- st_as_stars(st_bbox(clc), dx = 10000, dy = 10000) 
+ clc_raster<- st_rasterize(clc,template=template,attr="CLASS_BIN")
+  
+clc<-vect(clc)
+clc_raster <- terra::rasterize(clc, field="CLASS_BIN")
+
+
+## 0.1.2 Generación escenarios climáticos ----
+ruta_escenarios<-"P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/Escenarios/"
+bases <- c("wc2.1_30s_bioc_") #añadir base CHELSA si hace falta
+GCM<- c("ACCESS-CM2")
+ssp<- c(126,245,370,585) %>% as.character()
+periods <- c("2041-2060")
+
+for (g in GCM){
+  for (s in ssp)  {
+    for (p in periods){
+    rutacompleta<-paste0(ruta_escenarios,
+                         bases,g,"_ssp",
+                         s,"_",p,".tif")
+    escenario<-rast(rutacompleta) %>% 
+    crop(y=extent_regional)
+    writeRaster(escenario,rutacompleta,format="GTiff",overwrite=TRUE)
+    
+      }
+    }
+}
+
+## 0.3 Carga escenarios climáticos----
+#cambiar nombres de las bandas internas!
+env_ssp126 <- rast(paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp126_2041-2060.tif"))
+env_ssp245 <- rast(paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp245_2041-2060.tif"))
+env_ssp370 <- rast(paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp370_2041-2060.tif"))
+env_ssp585 <- rast(paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp585_2041-2060.tif"))
+
+escenarios <- list(env_ssp126, env_ssp245, env_ssp370, env_ssp585)
+
+## 0.2 Carga de predictores----
+setwd("~/restauracion") #moverlo a la red de tragsa
+
+worldclim_vars<-list.files(pattern="\\.tif")
+
+#correr una vez para toda la sesión
+#lineas para recortar worldclim a escala europea
+# for (w in worldclim_vars){
+#   print(w)
+#   bio_temp<-raster(w) %>% crop(y=extent_global)
+#   writeRaster(bio_temp,w,overwrite=TRUE)
+# }
+biovars_global<-stack()
+for (w in worldclim_vars){
+  print(w)
+  bio_temp<-raster(w)# %>% crop(y=extent_global) #ya cortadas
+  biovars_global<-stack(biovars_global,bio_temp)
+}
+biovars_regional<-stack()
+for (w in worldclim_vars){
+  print(w)
+  bio_temp<-raster(w) %>% crop(y=extent_regional)
+  biovars_regional<-stack(biovars_regional,bio_temp)
+}
+
+expl.var.global <- terra::rast(biovars_global)
+expl.var.regional <- terra::rast(biovars_regional)
+
+#
+
+especies<-c("Ziziphus lotus","Launaea arborescens",
+            #"Brachypodium sylvaticum","Festuca ovina","Fagus sylvatica",
+            ) #cambiarlo por la lista de especies final
+
+
+## 0.3 Generación de Background de Corine Land Cover
+
+#Esta sección debe utilizarse para generar los puntos de background de los modelos.
+
+clc<-st_read
+
+# 1. Modelización----
+
+for(especie in especies){
+#Chequeo de si la especie está modelada o no ya
+## 1.1 Búsqueda de GBIF ----
+# Dataset global
+
+print(especie)
+print("Searching global")
+raw_occurrences_global <- occ_search(scientificName=especie,
+                                     continent = "europe",
+                                     hasCoordinate = TRUE,
+                                     hasGeospatialIssue= FALSE,
+                                     limit = 8000,
+                                     fields=c("scientificName","decimalLatitude",
+                                              "decimalLongitude","coordinateUncertaintyInMeters",
+                                              "eventDate"))
+
+raw_occurrences_global<-raw_occurrences_global$data
+
+raw_occurrences_global<-raw_occurrences_global %>% 
+  dplyr::rename(y=2,x=3,precision=4,date=5) %>%
+  mutate(date=as.Date(date))
+
+filtered_occurrences_data <- raw_occurrences_global %>% 
+  #filter(precision<1000) %>% 
+  dplyr::select(x,y,date) %>% relocate(x,.before=y) %>% 
+  arrange(date)
+
+xy.global<-filtered_occurrences_data %>% dplyr::select(x,y) #%>%
+  #st_as_sf(coords = c("x", "y"), crs = geoproj)
+
+## Dataset regional
+## FALTA el filtro de AFLIBER!!
+print("Searching regional")
+raw_occurrences <- occ_search(scientificName=especie,
+                              country = "ES",
+                              hasCoordinate = TRUE,
+                              hasGeospatialIssue= FALSE,
+                              limit = 8000,
+                              fields=c("scientificName","decimalLatitude",
+                                       "decimalLongitude","coordinateUncertaintyInMeters",
+                                       "eventDate"))
+
+raw_occurrences_data <- raw_occurrences$data
+raw_occurrences_data <- raw_occurrences_data %>%
+  dplyr::rename(y=2,x=3,precision=4,date=5) %>%
+  mutate(date=as.Date(date)) 
+
+filtered_occurrences_data <- raw_occurrences_data %>%  
+  #filter (precision < 1000) %>%  ##decidir sobre la precisión del filtro
+  dplyr::select(x,y,date) %>% 
+  relocate(x, .before=y) %>% 
+arrange(date)
+
+xy.regional<-filtered_occurrences_data %>% dplyr::select(x,y)# %>%
+  #st_as_sf(coords = c("x", "y"), crs = geoproj)
+
+#desarrollar la limpieza de coordenadas
+#decidir sobre la imputación de ocurrencias históricas
+## 1.2 Modelización----
+print("nsdm input data")
+nsdm_input <- NSDM.InputData(SpeciesName = especie,
+                             spp.data.global = xy.global, 
+                             spp.data.regional = xy.regional,
+                             expl.var.global = expl.var.global,
+                             expl.var.regional = expl.var.regional,,
+                             new.env = escenarios,
+                             new.env.names = ssp,
+                             Background.Global = NULL, 
+#OJO, DETERMINAR BIEN LAS ZONAS NATURALES. HAY RIESGO DE OVERFITTING
+                             Background.Regional = NULL)
+
+print("nsdm finput data")
+nsdm_finput <- NSDM.FormattingData(nsdm_input,
+#OJO modificar número de puntos de acuerdo al número de ocurrencias                                 
+                                   nPoints = 100, # number of background points
+                                   Min.Dist.Global = "resolution",
+                                   Min.Dist.Regional = "resolution",
+                                   Background.method = "random", # method “random" or "stratified” to generate background points 
+                                   save.output = FALSE) #save outputs locally
+print("selecting vars")
+nsdm_selvars <- NSDM.SelectCovariates(nsdm_finput,
+                                      maxncov.Global = "nocorr",   # Max number of covariates to be selected at the global scale
+                                      maxncov.Regional = "nocorr", # Max number of covariates to be selected at the regional scale
+                                      corcut = 0.7, #  correlation threshold
+                                      algorithms = c("glm","gam","rf"),
+                                      ClimaticVariablesBands = NULL, # covariate bands to be excluded in the covariate selection at the regional scale
+                                      save.output = TRUE)
+print("nsdm global")
+nsdm_global <- NSDM.Global(nsdm_selvars,
+                           algorithms = c("GAM","GBM", "RF","GLM"),# Statistical algorithms used for modelling
+                           CV.nb.rep = 10, # number of cross-validation repetitions
+                           CV.perc = 0.8, # percentage of the data will be used for training in each cross-validation fold
+                           metric.select.thresh = 0.7, #  AUC threshold to include replicates in the final ensemble model
+                           CustomModelOptions = NULL, # Allows users to apply custom modelling options. 
+                           save.output = TRUE, 
+                           rm.biomod.folder = TRUE) # Remove the temporary folders created by `biomod2` 
+print("nsdm regional")
+nsdm_regional <- NSDM.Regional(nsdm_selvars,
+                               algorithms = c("GAM","GBM", "RF","GLM"),
+                               CV.nb.rep = 10,
+                               CV.perc = 0.8,
+                               metric.select.thresh = 0.7,
+                               CustomModelOptions = NULL, 
+                               save.output = TRUE,
+                               rm.biomod.folder = TRUE)
+
+print("covariate model")
+nsdm_covariate <- NSDM.Covariate(nsdm_global,
+                                 algorithms = c("GAM","GBM", "RF", "GLM"),
+                                 rm.corr=TRUE,
+                                 CV.nb.rep = 10,
+                                 CV.perc = 0.8,
+                                 metric.select.thresh = 0.7,
+                                 CustomModelOptions = NULL,
+                                 save.output = TRUE,
+                                 rm.biomod.folder = TRUE)
+regional_model<-terra::rast(nsdm_regional$current.projections$Pred)
+plot(regional_model)
+Covariate.model <- terra::rast(nsdm_covariate$current.projections$Pred)
+plot(Covariate.model, main=especie)
+points(xy.regional)
+##WRITE RASTER
+##WRITE PROJECTION
+}
+
