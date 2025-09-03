@@ -1,62 +1,31 @@
 # 0. Constantes globales ----
-
-packages<-c("raster", "biomod2", "dismo","mgcv","raster",
+packages<-c("raster", "biomod2", "dismo","mgcv","terra",
             "rasterVis","gstat","shapefiles",
             "sp","ggfortify","reshape","spatialEco",
             "tidyverse","rgbif","sabinaNSDM","stringi",
-            "CoordinateCleaner","geodata","sf","tidyverse","rnaturalearth",
-            "glmnet","data.table","covsel","stars")
+            "CoordinateCleaner","sf","glmnet","data.table","covsel","stars","readxl")
 sapply(packages, require, character.only=T, quietly = FALSE)
 
 #CRSs por si hay que reproyectar
-UTMproj<-"+proj=utm +zone=28 +ellps=WGS84 +datum=WGS84 +units=m +no_defs"
+UTMproj<-"+proj=utm +zone=30 +ellps=WGS84 +datum=WGS84 +units=m +no_defs"
 geoproj<-"+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
 extent_regional<-extent(c(-10,4.28,34,44.5)) #coordenadas peninsula + NAfrica
 extent_global<-extent(c(-16.47,93.53,18.24,78))
 
 ## 0.1 Rutas globales----
 # Ir metiendo rutas aquí según empecemos a mover los datos
-## 0.1.1 CORINE LAND COVER----
-#ruta_clc<-"P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/UE/Copernicus/CLC+BB_2023/ES_CLC+BB_Bruto.tif"
-#clc<-raster(ruta_clc) %>% projectRaster(crs=geoproj)
-clc <- st_read("~/Corine/clc.shp") %>%
-  mutate(CLASS_BIN = if_else(startsWith(CODE_18, "3"), 1, 0))
-template <- st_as_stars(st_bbox(clc), dx = 10000, dy = 10000) 
- clc_raster<- st_rasterize(clc,template=template,attr="CLASS_BIN")
-  
-clc<-vect(clc)
-clc_raster <- terra::rasterize(clc, field="CLASS_BIN")
-
-
-## 0.1.2 Generación escenarios climáticos ----
-ruta_escenarios<-"P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/Escenarios/"
-bases <- c("wc2.1_30s_bioc_") #añadir base CHELSA si hace falta
-GCM<- c("ACCESS-CM2")
-ssp<- c(126,245,370,585) %>% as.character()
-periods <- c("2041-2060")
-
-for (g in GCM){
-  for (s in ssp)  {
-    for (p in periods){
-    rutacompleta<-paste0(ruta_escenarios,
-                         bases,g,"_ssp",
-                         s,"_",p,".tif")
-    escenario<-rast(rutacompleta) %>% 
-    crop(y=extent_regional)
-    writeRaster(escenario,rutacompleta,format="GTiff",overwrite=TRUE)
-    
-      }
-    }
-}
-
-## 0.3 Carga escenarios climáticos----
-#cambiar nombres de las bandas internas!
-env_ssp126 <- rast(paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp126_2041-2060.tif"))
-env_ssp245 <- rast(paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp245_2041-2060.tif"))
-env_ssp370 <- rast(paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp370_2041-2060.tif"))
-env_ssp585 <- rast(paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp585_2041-2060.tif"))
-
-escenarios <- list(env_ssp126, env_ssp245, env_ssp370, env_ssp585)
+## 0.1.1 CORINE LAND COVER background----
+# ruta_clc<-"~/Corine/clc_UTM.tif"
+# m <- matrix(c(
+#   1, 1, 1,   # ID=1 → 1
+#   2, Inf, 0  # cualquier valor mayor que 1 → 0
+# ), ncol = 3, byrow = TRUE)
+# clc <- raster(ruta_clc) %>% aggregate(fact=10, fun=modal)
+# clc <- projectRaster(clc,crs=crs(geoproj)) 
+# background <-as.data.frame(clc,xy=TRUE) %>% 
+# filter(clc_UTM == 1) %>% select(-c(clc_UTM))
+# write_csv(background,"~/restauracion/background.csv")
+background<-read_csv("~/restauracion/background.csv")
 
 ## 0.2 Carga de predictores----
 setwd("~/restauracion") #moverlo a la red de tragsa
@@ -86,18 +55,63 @@ for (w in worldclim_vars){
 expl.var.global <- terra::rast(biovars_global)
 expl.var.regional <- terra::rast(biovars_regional)
 
-#
+# 0.3 Carga escenarios climáticos----
+ruta_escenarios<-"P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/Escenarios/"
+# bases <- c("wc2.1_30s_bioc_") #añadir base CHELSA si hace falta
+# GCM<- c("ACCESS-CM2")
+# ssp<- c(126,245,370,585) %>% as.character()
+# periods <- c("2041-2060")
+# 
+# for (g in GCM){
+#   for (s in ssp)  {
+#     for (p in periods){
+#       rutacompleta<-paste0(ruta_escenarios,
+#                            bases,g,"_ssp",
+#                            s,"_",p,".tif")
+#       escenario<-rast(rutacompleta) %>% 
+#         crop(y=extent_regional)
+#       writeRaster(escenario,rutacompleta,format="GTiff",overwrite=TRUE)
+#       
+#     }
+#   }
+# }
 
-especies<-c("Ziziphus lotus","Launaea arborescens",
-            #"Brachypodium sylvaticum","Festuca ovina","Fagus sylvatica",
-            ) #cambiarlo por la lista de especies final
+variable_names<-names(expl.var.regional)
+env_ssp126 <- rast(paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp126_2041-2060.tif")) %>% 
+  crop(extent_regional)
+names(env_ssp126)<-variable_names
+terra::writeRaster(env_ssp126,paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp126_2041-2060.tif"),
+                   overwrite=TRUE)
 
+env_ssp245 <- rast(paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp245_2041-2060.tif"))%>% 
+  crop(extent_regional)
+names(env_ssp245)<-variable_names
+terra::writeRaster(env_ssp245,paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp245_2041-2060.tif"),
+                   overwrite=TRUE)
 
-## 0.3 Generación de Background de Corine Land Cover
+env_ssp370 <- rast(paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp370_2041-2060.tif"))%>% 
+  crop(extent_regional)
+names(env_ssp370)<-variable_names
+terra::writeRaster(env_ssp370,paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp370_2041-2060.tif"),
+                   overwrite=TRUE)
 
-#Esta sección debe utilizarse para generar los puntos de background de los modelos.
+env_ssp585 <- rast(paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp585_2041-2060.tif"))%>% 
+  crop(extent_regional)
+names(env_ssp585)<-variable_names
+terra::writeRaster(env_ssp585,paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp585_2041-2060.tif"),
+                   overwrite=TRUE)
 
-clc<-st_read
+env_ssp126 <- rast(paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp126_2041-2060.tif"))
+env_ssp245 <- rast(paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp245_2041-2060.tif"))
+env_ssp370 <- rast(paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp370_2041-2060.tif"))
+env_ssp585 <- rast(paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp585_2041-2060.tif"))
+
+escenarios <- list(env_ssp126, env_ssp245, env_ssp370, env_ssp585)
+
+## 0.4 Carga de los nombres de especies----
+
+especies<-read_excel("especies.xlsx") #cambiarlo por la lista de especies final
+especies<-especies$Taxon
 
 # 1. Modelización----
 
@@ -109,7 +123,7 @@ for(especie in especies){
 print(especie)
 print("Searching global")
 raw_occurrences_global <- occ_search(scientificName=especie,
-                                     continent = "europe",
+                                     continent = c('europe','Africa'),
                                      hasCoordinate = TRUE,
                                      hasGeospatialIssue= FALSE,
                                      limit = 8000,
