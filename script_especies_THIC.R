@@ -11,7 +11,16 @@ lista<-read_excel("P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/308120
 
 habitats<-lista$Habitat %>% unique()
 
+
 for (h in habitats){
+print(h)  
+  ocurrencias<-tibble(
+    x = vector("numeric"),
+    y = vector("numeric"),
+    especie = vector("character"),
+    codigoHabitat = vector("character")
+  )
+  
   sp_hab <- filter(lista,Habitat == h)
   species<-sp_hab$Especie
   for (especie in species) {
@@ -26,19 +35,24 @@ for (h in habitats){
     raw_occurrences_data <- raw_occurrences$data
     raw_occurrences_data <- raw_occurrences_data %>%
       dplyr::rename(y=2,x=3,precision=4)
-    print(paste(species, nrow(raw_occurrences_data)))
+    print(paste(especie, nrow(raw_occurrences_data)))
     filtered_occurrences_data <- raw_occurrences_data %>%  
-      #filter (precision < 1000) %>%  ##decidir sobre la precisión del filtro
+      filter (precision < 1000) %>%  ##decidir sobre la precisión del filtro
       dplyr::select(x,y) %>% 
       relocate(x, .before=y)
+    print(paste(especie, nrow(raw_occurrences_data),nrow(filtered_occurrences_data)))
+    
+    ocurrencias_temp<-cbind(filtered_occurrences_data,especie,h)
+    colnames(ocurrencias_temp) <- colnames(ocurrencias)
+    ocurrencias<-rbind(ocurrencias,ocurrencias_temp)
+    
     print(paste0("writing",especie))
-    write_csv(filtered_occurrences_data,paste0("P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC/EspeciesTHIC_GBIF/", 
-                                               especie, ".csv"))
+    
   }
-  
+  print(paste("writing ",especie))
+  write_csv(ocurrencias,paste0("P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC/EspeciesTHIC_GBIF/", 
+  h, ".csv"))
 }
-
-
 
 filtered_occurrences_data <- raw_occurrences_data %>%  
   #filter (precision < 1000) %>%  ##decidir sobre la precisión del filtro
@@ -47,3 +61,4 @@ filtered_occurrences_data <- raw_occurrences_data %>%
 
 write_csv(filtered_occurrences_data,paste0("P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC/EspeciesTHIC_GBIF/", 
                  especie, ".csv"))
+
