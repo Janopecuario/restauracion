@@ -5,12 +5,17 @@ packages<-c("raster", "biomod2", "dismo","mgcv","terra",
             "CoordinateCleaner","sf","glmnet","data.table","covsel","stars","readxl")
 sapply(packages, require, character.only=T, quietly = FALSE)
 
+UTMproj<-"+proj=utm +zone=30 +ellps=WGS84 +datum=WGS84 +units=m +no_defs"
+geoproj<-"+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
+
 lista<-read_excel("P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC/ListadoTipicas.xlsx") %>% 
   mutate(Habitual=as.factor(Habitual),
          Diagnostica=as.factor(Diagnostica), Abundancia=as.factor(Abundancia))
 
-habitats<-lista$Habitat %>% unique()
+malla<-raster("P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC/ambientes/Tmed.asc") %>% 
+projectRaster(crs=crs(geoproj))  
 
+habitats<-lista$Habitat %>% unique()
 
 for (h in habitats){
 print(h)  
@@ -46,19 +51,40 @@ print(h)
     colnames(ocurrencias_temp) <- colnames(ocurrencias)
     ocurrencias<-rbind(ocurrencias,ocurrencias_temp)
     
-    print(paste0("writing",especie))
     
   }
-  print(paste("writing ",especie))
-  write_csv(ocurrencias,paste0("P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC/EspeciesTHIC_GBIF/", 
-  h, ".csv"))
+  riqueza = malla %>% raster__aggregate(fact=5)
+  values(riqueza) <-0
+  species<-unique(ocurrencias$especie)
+  estructura<-"Fagus sylvatica"
+  species <- setdiff(species, estructura)
+  for (s in species){
+    ocurrencias_temp<-filter(ocurrencias,especie == s)
+    raster_temp<-rasterize(ocurrencias_temp[1:2],y=caracter, field=1, background=0)
+    #plot(raster_temp,main=s)
+    riqueza=riqueza+raster_temp
+    #plot(caracter)
+  }
+  ocurrencias_estructura<-filter(ocurrencias,especie == estructura)
+  raster_estructura<-raster_temp<-rasterize(ocurrencias_estructura[1:2],y=aggregate(malla,fact=5), field=1, background=0)
+  riqueza<-raster*estructura
+  raster::writeRaster(riqueza,paste0("h,.tif"),overwrite=TRUE)
 }
 
-filtered_occurrences_data <- raw_occurrences_data %>%  
-  #filter (precision < 1000) %>%  ##decidir sobre la precisión del filtro
-  dplyr::select(x,y) %>% 
-  relocate(x, .before=y)
 
-write_csv(filtered_occurrences_data,paste0("P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC/EspeciesTHIC_GBIF/", 
-                 especie, ".csv"))
 
+
+
+
+
+
+ocurrencias_estructura<-filter(ocurrencias,especie == estructura)
+raster_estructura<-raster_temp<-rasterize(ocurrencias_estructura[1:2],y=malla, field=1, background=0)
+plot(caracter)
+caracter <- caracter*raster_estructura
+raster::writeRaster(caracter,"caracter1000.tif")
+
+plot(malla)
+ocurrencias %>% filter(especie== "Meconopsis cambrica") %>% select(x,y) %>% points(col="red")
+ocurrencias %>% filter(especie== "Ulmus glabra") %>% select(x,y) %>% points(col="black")
+writeRaster(caracter,"THIC9130.tif")
