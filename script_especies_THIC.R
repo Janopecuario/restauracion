@@ -18,8 +18,9 @@ lista <- read_excel("P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081
          Diagnostica = as.factor(Diagnostica), 
          Abundancia = as.factor(Abundancia))
 
+resolucion <- 10
 malla <- raster("P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC/ambientes/Tmed.asc") %>% 
-  projectRaster(crs = crs(geoproj))  %>% aggregate(fact=5)
+  projectRaster(crs = crs(geoproj))  %>% aggregate(fact=resolucion)
 
 habitats <- lista$Habitat %>% unique()
 
@@ -41,60 +42,65 @@ for (h in habitats) {
   )
   
   sp_hab <- filter(lista, Habitat == h)
-  species <- sp_hab$Especie
+  species <- sp_hab$Especie %>% unique()
   
   for (especie in species) {
     if ((especie %in% descargadas)) {
-      print(paste(especie,"already downloaded")) } 
+      print(paste(especie,"already downloaded")) 
+      
       ocurrencias_temp <- gbif_descargadas %>% filter(especie==especie)
       ocurrencias_temp$codigoHabitat <- h
       
       colnames(ocurrencias_temp) <- colnames(ocurrencias)
       ocurrencias <- rbind(ocurrencias, ocurrencias_temp)
       
-    else {
-    print(paste("Searching", especie))
-    
-    raw_occurrences <- tryCatch({
-      occ_search(scientificName = especie,
-                 country = "ES",
-                 hasCoordinate = TRUE,
-                 hasGeospatialIssue = FALSE,
-                 limit = 8000,
-                 fields = c("scientificName","decimalLatitude",
-                            "decimalLongitude","coordinateUncertaintyInMeters"))
-    }, error = function(e) {
-      message(paste("Error en", especie, ":", e$message))
-      error_log <<- rbind(error_log, tibble(
-        habitat = h,
-        especie = especie,
-        error_msg = e$message
-      ))
-      return(NULL)
-    })
-    
-    if (is.null(raw_occurrences) || is.null(raw_occurrences$data)) next
-    
-    raw_occurrences_data <- raw_occurrences$data %>%
-      dplyr::rename(y = 2, x = 3, precision = 4)
-    
-    filtered_occurrences_data <- raw_occurrences_data %>%  
-      filter(precision < 1000) %>%  
-      dplyr::select(x, y) %>% 
-      relocate(x, .before = y)
-    to_save <- cbind(filtered_occurrences_data,especie)
-    if (!file.exists(ruta_descargadas)) {
-      write.table(to_save, ruta_descargadas, sep = ",", row.names = FALSE, col.names = TRUE, append = FALSE)
     } else {
-      write.table(to_save, ruta_descargadas, sep = ",", row.names = FALSE, col.names = FALSE, append = TRUE)
-    }
-    print(paste(especie, nrow(raw_occurrences_data), nrow(filtered_occurrences_data)))
-    
-    ocurrencias_temp <- cbind(filtered_occurrences_data, especie, h)
-    colnames(ocurrencias_temp) <- colnames(ocurrencias)
-    ocurrencias <- rbind(ocurrencias, ocurrencias_temp)
-    
-    Sys.sleep(180) # no saturar API
+      print(paste("Searching", especie))
+      
+      raw_occurrences <- tryCatch({
+        occ_search(scientificName = especie,
+                   country = "ES",
+                   hasCoordinate = TRUE,
+                   hasGeospatialIssue = FALSE,
+                   limit = 8000,
+                   fields=c("scientificName","decimalLatitude",
+                            "decimalLongitude","coordinateUncertaintyInMeters",
+                            "eventDate"))
+      }, error = function(e) {
+        message(paste("Error en", especie, ":", e$message))
+        error_log <<- rbind(error_log, tibble(
+          habitat = h,
+          especie = especie,
+          error_msg = e$message
+        ))
+        return(NULL)
+      })
+      
+      if (is.null(raw_occurrences) || is.null(raw_occurrences$data)) next
+      
+      raw_occurrences_data <- raw_occurrences$data %>%
+        dplyr::rename(especie=1, y = 2, x = 3, precision = 5,date=4)
+      raw_occurrences_data$especie <- especie
+      
+      filtered_occurrences_data <- raw_occurrences_data %>%  
+        filter(precision < 10000) %>%  
+        #dplyr::select(x, y) %>% 
+        relocate(x, .before = y) %>% relocate(especie,.after=y)
+      #to_save <- cbind(filtered_occurrences_data,especie)
+      if (!file.exists(ruta_descargadas)) {
+        write.table(filtered_occurrences_data, ruta_descargadas, sep = ",", row.names = FALSE, col.names = TRUE, append = FALSE)
+      } else {
+        write.table(filtered_occurrences_data, ruta_descargadas, sep = ",", row.names = FALSE, col.names = FALSE, append = TRUE)
+      }
+      print(paste(especie, nrow(raw_occurrences_data), nrow(filtered_occurrences_data)))
+      
+      ocurrencias_temp <- filtered_occurrences_data %>% select(x,y,especie)
+      ocurrencias_temp$codigoHabitat <- h
+      
+      colnames(ocurrencias_temp) <- colnames(ocurrencias)
+      ocurrencias <- rbind(ocurrencias, ocurrencias_temp)
+      print("sleeping system")
+      Sys.sleep(180) # no saturar API
     }
   }
   
@@ -114,8 +120,7 @@ for (h in habitats) {
   ocurrencias_estructura <- filter(ocurrencias, especie == estructura)
   raster_estructura <- rasterize(ocurrencias_estructura[1:2], y = riqueza, field = 1, background = 0)
   riqueza <- riqueza * raster_estructura
-  
-  raster::writeRaster(riqueza, paste0("h_", h, ".tif"), overwrite = TRUE)
+  raster::writeRaster(riqueza, paste0("h_", h,"_" ,resolucion,".tif"), overwrite = TRUE)
 }
 
 
