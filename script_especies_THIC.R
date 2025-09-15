@@ -1,90 +1,137 @@
-packages<-c("raster", "biomod2", "dismo","mgcv","terra",
-            "rasterVis","gstat","shapefiles",
-            "sp","ggfortify","reshape","spatialEco",
-            "tidyverse","rgbif","sabinaNSDM","stringi",
-            "CoordinateCleaner","sf","glmnet","data.table","covsel","stars","readxl")
-sapply(packages, require, character.only=T, quietly = FALSE)
+packages <- c("raster", "biomod2", "dismo","mgcv","terra",
+              "rasterVis","gstat","shapefiles",
+              "sp","ggfortify","reshape","spatialEco",
+              "tidyverse","rgbif","sabinaNSDM","stringi",
+              "CoordinateCleaner","sf","glmnet","data.table",
+              "covsel","stars","readxl")
 
-UTMproj<-"+proj=utm +zone=30 +ellps=WGS84 +datum=WGS84 +units=m +no_defs"
-geoproj<-"+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
+sapply(packages, require, character.only = TRUE, quietly = FALSE)
 
-lista<-read_excel("P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC/ListadoTipicas.xlsx") %>% 
-  mutate(Habitual=as.factor(Habitual),
-         Diagnostica=as.factor(Diagnostica), Abundancia=as.factor(Abundancia))
+UTMproj <- "+proj=utm +zone=30 +ellps=WGS84 +datum=WGS84 +units=m +no_defs"
+geoproj <- "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
+ruta_descargadas<-"P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC/especies_descargadas.csv"
+gbif_descargadas<-read.csv(ruta_descargadas,sep=",")
+descargadas<-unique(gbif_descargadas$especie)
 
-malla<-raster("P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC/ambientes/Tmed.asc") %>% 
-projectRaster(crs=crs(geoproj))  
+lista <- read_excel("P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC/ListadoTipicas.xlsx") %>% 
+  mutate(Habitual = as.factor(Habitual),
+         Diagnostica = as.factor(Diagnostica), 
+         Abundancia = as.factor(Abundancia))
 
-habitats<-lista$Habitat %>% unique()
+malla <- raster("P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC/ambientes/Tmed.asc") %>% 
+  projectRaster(crs = crs(geoproj))  %>% aggregate(fact=5)
 
-for (h in habitats){
-print(h)  
-  ocurrencias<-tibble(
+habitats <- lista$Habitat %>% unique()
+
+# log de errores
+error_log <- tibble(
+  habitat = character(),
+  especie = character(),
+  error_msg = character()
+)
+
+for (h in habitats) {
+  print(h)  
+  
+  ocurrencias <- tibble(
     x = vector("numeric"),
     y = vector("numeric"),
     especie = vector("character"),
     codigoHabitat = vector("character")
   )
   
-  sp_hab <- filter(lista,Habitat == h)
-  species<-sp_hab$Especie
+  sp_hab <- filter(lista, Habitat == h)
+  species <- sp_hab$Especie
+  
   for (especie in species) {
-    print(paste("Searching",especie))
-    raw_occurrences <- occ_search(scientificName=especie,
-                                  country = "ES",
-                                  hasCoordinate = TRUE,
-                                  hasGeospatialIssue= FALSE,
-                                  limit = 8000,
-                                  fields=c("scientificName","decimalLatitude",
-                                           "decimalLongitude","coordinateUncertaintyInMeters"))
-    raw_occurrences_data <- raw_occurrences$data
-    raw_occurrences_data <- raw_occurrences_data %>%
-      dplyr::rename(y=2,x=3,precision=4)
-    print(paste(especie, nrow(raw_occurrences_data)))
+    if ((especie %in% descargadas)) {
+      print(paste(especie,"already downloaded")) } 
+      ocurrencias_temp <- gbif_descargadas %>% filter(especie==especie)
+      ocurrencias_temp$codigoHabitat <- h
+      
+      colnames(ocurrencias_temp) <- colnames(ocurrencias)
+      ocurrencias <- rbind(ocurrencias, ocurrencias_temp)
+      
+    else {
+    print(paste("Searching", especie))
+    
+    raw_occurrences <- tryCatch({
+      occ_search(scientificName = especie,
+                 country = "ES",
+                 hasCoordinate = TRUE,
+                 hasGeospatialIssue = FALSE,
+                 limit = 8000,
+                 fields = c("scientificName","decimalLatitude",
+                            "decimalLongitude","coordinateUncertaintyInMeters"))
+    }, error = function(e) {
+      message(paste("Error en", especie, ":", e$message))
+      error_log <<- rbind(error_log, tibble(
+        habitat = h,
+        especie = especie,
+        error_msg = e$message
+      ))
+      return(NULL)
+    })
+    
+    if (is.null(raw_occurrences) || is.null(raw_occurrences$data)) next
+    
+    raw_occurrences_data <- raw_occurrences$data %>%
+      dplyr::rename(y = 2, x = 3, precision = 4)
+    
     filtered_occurrences_data <- raw_occurrences_data %>%  
-      filter (precision < 1000) %>%  ##decidir sobre la precisión del filtro
-      dplyr::select(x,y) %>% 
-      relocate(x, .before=y)
-    print(paste(especie, nrow(raw_occurrences_data),nrow(filtered_occurrences_data)))
+      filter(precision < 1000) %>%  
+      dplyr::select(x, y) %>% 
+      relocate(x, .before = y)
+    to_save <- cbind(filtered_occurrences_data,especie)
+    if (!file.exists(ruta_descargadas)) {
+      write.table(to_save, ruta_descargadas, sep = ",", row.names = FALSE, col.names = TRUE, append = FALSE)
+    } else {
+      write.table(to_save, ruta_descargadas, sep = ",", row.names = FALSE, col.names = FALSE, append = TRUE)
+    }
+    print(paste(especie, nrow(raw_occurrences_data), nrow(filtered_occurrences_data)))
     
-    ocurrencias_temp<-cbind(filtered_occurrences_data,especie,h)
+    ocurrencias_temp <- cbind(filtered_occurrences_data, especie, h)
     colnames(ocurrencias_temp) <- colnames(ocurrencias)
-    ocurrencias<-rbind(ocurrencias,ocurrencias_temp)
+    ocurrencias <- rbind(ocurrencias, ocurrencias_temp)
     
-    
+    Sys.sleep(180) # no saturar API
+    }
   }
-  riqueza = malla %>% raster__aggregate(fact=5)
-  values(riqueza) <-0
-  species<-unique(ocurrencias$especie)
-  estructura<-"Fagus sylvatica"
-  species <- setdiff(species, estructura)
-  for (s in species){
-    ocurrencias_temp<-filter(ocurrencias,especie == s)
-    raster_temp<-rasterize(ocurrencias_temp[1:2],y=caracter, field=1, background=0)
-    #plot(raster_temp,main=s)
-    riqueza=riqueza+raster_temp
-    #plot(caracter)
+  
+  riqueza <- malla
+  values(riqueza) <- 0
+  species <- unique(ocurrencias$especie)
+  
+  estructura <- "Fagus sylvatica"
+  #species <- setdiff(species, estructura)
+  
+  for (s in species) {
+    ocurrencias_temp <- filter(ocurrencias, especie == s)
+    raster_temp <- rasterize(ocurrencias_temp[1:2], y = riqueza, field = 1, background = 0)
+    riqueza <- riqueza + raster_temp
   }
-  ocurrencias_estructura<-filter(ocurrencias,especie == estructura)
-  raster_estructura<-raster_temp<-rasterize(ocurrencias_estructura[1:2],y=aggregate(malla,fact=5), field=1, background=0)
-  riqueza<-raster*estructura
-  raster::writeRaster(riqueza,paste0("h,.tif"),overwrite=TRUE)
+  
+  ocurrencias_estructura <- filter(ocurrencias, especie == estructura)
+  raster_estructura <- rasterize(ocurrencias_estructura[1:2], y = riqueza, field = 1, background = 0)
+  riqueza <- riqueza * raster_estructura
+  
+  raster::writeRaster(riqueza, paste0("h_", h, ".tif"), overwrite = TRUE)
 }
 
 
-
-
-
-
-
-
-ocurrencias_estructura<-filter(ocurrencias,especie == estructura)
-raster_estructura<-raster_temp<-rasterize(ocurrencias_estructura[1:2],y=malla, field=1, background=0)
-plot(caracter)
-caracter <- caracter*raster_estructura
-raster::writeRaster(caracter,"caracter1000.tif")
+ocurrencias_estructura <- filter(ocurrencias, especie == estructura)
+raster_estructura <- rasterize(ocurrencias_estructura[1:2], y = malla, field = 1, background = 0)
 
 plot(malla)
-ocurrencias %>% filter(especie== "Meconopsis cambrica") %>% select(x,y) %>% points(col="red")
-ocurrencias %>% filter(especie== "Ulmus glabra") %>% select(x,y) %>% points(col="black")
-writeRaster(caracter,"THIC9130.tif")
+ocurrencias %>% filter(especie == "Meconopsis cambrica") %>% select(x, y) %>% points(col = "red")
+ocurrencias %>% filter(especie == "Ulmus glabra") %>% select(x, y) %>% points(col = "black")
+
+caracter <- raster_estructura * malla
+plot(caracter)
+writeRaster(caracter, "THIC9130.tif", overwrite = TRUE)
+
+# guardar log de errores
+if (nrow(error_log) > 0) {
+  write_csv(error_log, "errores_gbif.csv")
+  message("Se guardó el log de errores en errores_gbif.csv")
+}
