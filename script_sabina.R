@@ -59,7 +59,7 @@ expl.var.regional <- terra::rast(biovars_regional)
 ruta_escenarios<-"P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/Escenarios/"
 # bases <- c("wc2.1_30s_bioc_") #añadir base CHELSA si hace falta
 # GCM<- c("ACCESS-CM2")
-# ssp<- c(126,245,370,585) %>% as.character()
+ssp<- c(126,245,370,585) %>% as.character()
 # periods <- c("2041-2060")
 # 
 # for (g in GCM){
@@ -110,8 +110,9 @@ escenarios <- list(env_ssp126, env_ssp245, env_ssp370, env_ssp585)
 
 ## 0.4 Carga de los nombres de especies----
 
-especies<-read_excel("especies.xlsx") #cambiarlo por la lista de especies final
-especies<-especies$Taxon
+ruta_descargadas<-"P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC/especies_descargadas.csv"
+gbif_descargadas<-read.csv(ruta_descargadas,sep=",")
+especies<-gbif_descargadas$especie %>% unique()
 
 # 1. Modelización----
 
@@ -123,7 +124,7 @@ for(especie in especies){
 print(especie)
 print("Searching global")
 raw_occurrences_global <- occ_search(scientificName=especie,
-                                     continent = c('europe','Africa'),
+                                     continent = "europe",
                                      hasCoordinate = TRUE,
                                      hasGeospatialIssue= FALSE,
                                      limit = 8000,
@@ -148,29 +149,30 @@ xy.global<-filtered_occurrences_data %>% dplyr::select(x,y) #%>%
 ## Dataset regional
 ## FALTA el filtro de AFLIBER!!
 print("Searching regional")
-raw_occurrences <- occ_search(scientificName=especie,
-                              country = "ES",
-                              hasCoordinate = TRUE,
-                              hasGeospatialIssue= FALSE,
-                              limit = 8000,
-                              fields=c("scientificName","decimalLatitude",
-                                       "decimalLongitude","coordinateUncertaintyInMeters",
-                                       "eventDate"))
+# raw_occurrences <- occ_search(scientificName=especie,
+#                               country = "ES",
+#                               hasCoordinate = TRUE,
+#                               hasGeospatialIssue= FALSE,
+#                               limit = 8000,
+#                               fields=c("scientificName","decimalLatitude",
+#                                        "decimalLongitude","coordinateUncertaintyInMeters",
+#                                        "eventDate"))
+# 
+# raw_occurrences_data <- raw_occurrences$data
+# raw_occurrences_data <- raw_occurrences_data %>%
+#   dplyr::rename(y=2,x=3,precision=4,date=5) %>%
+#   mutate(date=as.Date(date)) 
+# 
+# filtered_occurrences_data <- raw_occurrences_data %>%  
+#   #filter (precision < 1000) %>%  ##decidir sobre la precisión del filtro
+#   dplyr::select(x,y,date) %>% 
+#   relocate(x, .before=y) %>% 
+# arrange(date)
 
-raw_occurrences_data <- raw_occurrences$data
-raw_occurrences_data <- raw_occurrences_data %>%
-  dplyr::rename(y=2,x=3,precision=4,date=5) %>%
-  mutate(date=as.Date(date)) 
-
-filtered_occurrences_data <- raw_occurrences_data %>%  
-  #filter (precision < 1000) %>%  ##decidir sobre la precisión del filtro
-  dplyr::select(x,y,date) %>% 
-  relocate(x, .before=y) %>% 
-arrange(date)
-
-xy.regional<-filtered_occurrences_data %>% dplyr::select(x,y)# %>%
+#xy.regional<-filtered_occurrences_data %>% dplyr::select(x,y)# %>%
   #st_as_sf(coords = c("x", "y"), crs = geoproj)
-
+xy.regional <- gbif_descargadas %>% filter(especie==especie) %>% 
+  select(x,y)
 #desarrollar la limpieza de coordenadas
 #decidir sobre la imputación de ocurrencias históricas
 ## 1.2 Modelización----
@@ -183,7 +185,7 @@ nsdm_input <- NSDM.InputData(SpeciesName = especie,
                              new.env = escenarios,
                              new.env.names = ssp,
                              Background.Global = NULL, 
-#OJO, DETERMINAR BIEN LAS ZONAS NATURALES. HAY RIESGO DE OVERFITTING
+
                              Background.Regional = NULL)
 
 print("nsdm finput data")
