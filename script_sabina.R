@@ -26,7 +26,8 @@ extent_global<-extent(c(-16.47,93.53,18.24,78))
 # filter(clc_UTM == 1) %>% select(-c(clc_UTM))
 # write_csv(background,"~/restauracion/background.csv")
 background<-read_csv("~/restauracion/background.csv")
-
+gbif_global <- "P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC/global_especies_descargadas.csv"
+ruta_descargadas<-"P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC/especies_descargadas.csv"
 ## 0.2 Carga de predictores----
 setwd("~/restauracion") #moverlo a la red de tragsa
 
@@ -112,19 +113,41 @@ escenarios <- list(env_ssp126, env_ssp245, env_ssp370, env_ssp585)
 
 ruta_descargadas<-"P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC/especies_descargadas.csv"
 gbif_descargadas<-read.csv(ruta_descargadas,sep=",")
-especies<-gbif_descargadas$especie %>% unique()
+descargadas<-gbif_descargadas$especie %>% unique()
+
+descargadas_global<-read.csv(gbif_global) #leemos los datos del archivo de ocurrencias globales
+descargadas_global<-descargadas_global$especie%>% unique() #especies que tienen los datos gbif descargados
+
+setwd("~/restauracion")
+limpiar <- c("archivo.variables", 
+             "mapa_ensemble", 
+             "test_indvar", 
+             "resultado_nbestreplicates", 
+             "modelo_replica")
+
+lista <- read_excel("P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC/ListadoTipicas.xlsx") %>% 
+  mutate(Habitual = as.factor(Habitual),
+         Diagnostica = as.factor(Diagnostica), 
+         Abundancia = as.factor(Abundancia))
+especies<-lista$Especie %>% unique()
+
+modelizadas<-list.files("~/restauracion/Results/Covariate/Values", ,
+                        pattern = "\\.csv$") %>% 
+  str_replace_all(pattern="\\.variables.csv|_ensemble.csv|_indvar.csv|_nbestreplicates.csv|_replica.csv",
+                  replacement= "") %>%  unique()
 
 # 1. Modelización----
 
-for(especie in especies){
-#Chequeo de si la especie está modelada o no ya
+for(e in especies){
+if (!(e %in% modelizadas)){
 ## 1.1 Búsqueda de GBIF ----
 # Dataset global
 
-print(especie)
+print(e)
+if (!(e %in% descargadas_global)){
 print("Searching global")
-raw_occurrences_global <- occ_search(scientificName=especie,
-                                     continent = "europe",
+raw_occurrences_global <- occ_search(scientificName=e,
+                                     #continent = "europe",
                                      hasCoordinate = TRUE,
                                      hasGeospatialIssue= FALSE,
                                      limit = 8000,
@@ -132,24 +155,31 @@ raw_occurrences_global <- occ_search(scientificName=especie,
                                               "decimalLongitude","coordinateUncertaintyInMeters",
                                               "eventDate"))
 
-raw_occurrences_global<-raw_occurrences_global$data
+occurrences_data_global<-raw_occurrences_global$data %>% 
+  dplyr::rename(y=decimalLatitude,x=decimalLongitude,
+                precision=coordinateUncertaintyInMeters,
+                date=eventDate,especie=scientificName) %>%
+  mutate(date=as.Date(date)) %>% relocate(x,y,especie,date,precision)
 
-raw_occurrences_global<-raw_occurrences_global %>% 
-  dplyr::rename(y=2,x=3,precision=4,date=5) %>%
-  mutate(date=as.Date(date))
+occurrences_data_global$especie <- e
 
-filtered_occurrences_data <- raw_occurrences_global %>% 
-  #filter(precision<1000) %>% 
-  dplyr::select(x,y,date) %>% relocate(x,.before=y) %>% 
-  arrange(date)
+if (!file.exists(gbif_global)) {
+  write.table(occurrences_data_global, gbif_global, sep = ",", row.names = FALSE, col.names = TRUE, append = FALSE)
+} else {
+  write.table(occurrences_data_global, gbif_global, sep = ",", row.names = FALSE, col.names = FALSE, append = TRUE)
+}
 
-xy.global<-filtered_occurrences_data %>% dplyr::select(x,y) #%>%
-  #st_as_sf(coords = c("x", "y"), crs = geoproj)
+xy.global<-occurrences_data_global %>% dplyr::select(x,y)
+} else {
+
+xy.global<-read.csv(gbif_global) 
+xy.global<- filter(xy.global, especie==e) %>% select(x,y)  
+  }
 
 ## Dataset regional
 ## FALTA el filtro de AFLIBER!!
 print("Searching regional")
-# raw_occurrences <- occ_search(scientificName=especie,
+# raw_occurrences <- occ_search(scientificName=e,
 #                               country = "ES",
 #                               hasCoordinate = TRUE,
 #                               hasGeospatialIssue= FALSE,
@@ -171,17 +201,17 @@ print("Searching regional")
 
 #xy.regional<-filtered_occurrences_data %>% dplyr::select(x,y)# %>%
   #st_as_sf(coords = c("x", "y"), crs = geoproj)
-xy.regional <- gbif_descargadas %>% filter(especie==especie) %>% 
+xy.regional <- gbif_descargadas %>% filter(especie==e) %>% 
   select(x,y)
 #desarrollar la limpieza de coordenadas
 #decidir sobre la imputación de ocurrencias históricas
 ## 1.2 Modelización----
 print("nsdm input data")
-nsdm_input <- NSDM.InputData(SpeciesName = especie,
+nsdm_input <- NSDM.InputData(SpeciesName = e,
                              spp.data.global = xy.global, 
                              spp.data.regional = xy.regional,
                              expl.var.global = expl.var.global,
-                             expl.var.regional = expl.var.regional,,
+                             expl.var.regional = expl.var.regional,
                              new.env = escenarios,
                              new.env.names = ssp,
                              Background.Global = NULL, 
@@ -236,9 +266,10 @@ nsdm_covariate <- NSDM.Covariate(nsdm_global,
 regional_model<-terra::rast(nsdm_regional$current.projections$Pred)
 plot(regional_model)
 Covariate.model <- terra::rast(nsdm_covariate$current.projections$Pred)
-plot(Covariate.model, main=especie)
+plot(Covariate.model, main=e)
 points(xy.regional)
 ##WRITE RASTER
 ##WRITE PROJECTION
+}
 }
 

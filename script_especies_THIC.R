@@ -33,7 +33,6 @@ error_log <- tibble(
 
 for (h in habitats) {
   print(h)  
-  
   ocurrencias <- tibble(
     x = vector("numeric"),
     y = vector("numeric"),
@@ -79,13 +78,15 @@ for (h in habitats) {
       if (is.null(raw_occurrences) || is.null(raw_occurrences$data)) next
       
       raw_occurrences_data <- raw_occurrences$data %>%
-        dplyr::rename(especie=1, y = 2, x = 3, precision = 5,date=4)
+        dplyr::rename(especie=1, y = 2, x = 3, 
+                      precision = coordinateUncertaintyInMeters,
+                      date=eventDate)
       raw_occurrences_data$especie <- especie
       
       filtered_occurrences_data <- raw_occurrences_data %>%  
-        filter(precision < 10000) %>%  
+        #filter(precision < 10000) %>%  
         #dplyr::select(x, y) %>% 
-        relocate(x, .before = y) %>% relocate(especie,.after=y)
+        relocate(x, .before = y) %>% relocate(especie,.after=y) %>% relocate(precision,.after=date)
       #to_save <- cbind(filtered_occurrences_data,especie)
       if (!file.exists(ruta_descargadas)) {
         write.table(filtered_occurrences_data, ruta_descargadas, sep = ",", row.names = FALSE, col.names = TRUE, append = FALSE)
@@ -97,8 +98,8 @@ for (h in habitats) {
       ocurrencias_temp <- filtered_occurrences_data %>% select(x,y,especie)
       ocurrencias_temp$codigoHabitat <- h
       
-      colnames(ocurrencias_temp) <- colnames(ocurrencias)
-      ocurrencias <- rbind(ocurrencias, ocurrencias_temp)
+      colnames(ocurrencias_temp) <- c("x","y","especie","codigoHabitat")
+      ocurrencias <- rbind(ocurrencias[1:4], ocurrencias_temp)
       print("sleeping system")
       Sys.sleep(180) # no saturar API
     }
@@ -122,7 +123,6 @@ for (h in habitats) {
   riqueza <- riqueza * raster_estructura
   raster::writeRaster(riqueza, paste0("h_", h,"_" ,resolucion,".tif"), overwrite = TRUE)
 }
-
 
 ocurrencias_estructura <- filter(ocurrencias, especie == estructura)
 raster_estructura <- rasterize(ocurrencias_estructura[1:2], y = malla, field = 1, background = 0)
