@@ -99,8 +99,8 @@ names(env_ssp370)<-variable_names
 env_ssp585 <- rast(paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp585_2041-2060.tif"))%>% 
   crop(extent_regional)
 names(env_ssp585)<-variable_names
-terra::writeRaster(env_ssp585,paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp585_2041-2060.tif"),
-                   overwrite=TRUE)
+# terra::writeRaster(env_ssp585,paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp585_2041-2060.tif"),
+#                    overwrite=TRUE)
 
 env_ssp126 <- rast(paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp126_2041-2060.tif"))
 env_ssp245 <- rast(paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp245_2041-2060.tif"))
@@ -137,139 +137,144 @@ modelizadas<-list.files("~/restauracion/Results/Covariate/Values", ,
                   replacement= "") %>%  unique()
 
 # 1. Modelización----
+errores <- data.frame(
+  especie = character(),
+  error = character(),
+  fecha = as.POSIXct(character()),
+  stringsAsFactors = FALSE
+)
 
+exitos <- data.frame(
+  especie = character(),
+  estado = character(),
+  fecha = as.POSIXct(character()),
+  stringsAsFactors = FALSE
+)
 for(e in especies){
-if (!(e %in% modelizadas)){
-## 1.1 Búsqueda de GBIF ----
-# Dataset global
-
-print(e)
-if (!(e %in% descargadas_global)){
-print("Searching global")
-raw_occurrences_global <- occ_search(scientificName=e,
-                                     #continent = "europe",
-                                     hasCoordinate = TRUE,
-                                     hasGeospatialIssue= FALSE,
-                                     limit = 8000,
-                                     fields=c("scientificName","decimalLatitude",
-                                              "decimalLongitude","coordinateUncertaintyInMeters",
-                                              "eventDate"))
-
-occurrences_data_global<-raw_occurrences_global$data %>% 
-  dplyr::rename(y=decimalLatitude,x=decimalLongitude,
-                precision=coordinateUncertaintyInMeters,
-                date=eventDate,especie=scientificName) %>%
-  mutate(date=as.Date(date)) %>% relocate(x,y,especie,date,precision)
-
-occurrences_data_global$especie <- e
-
-if (!file.exists(gbif_global)) {
-  write.table(occurrences_data_global, gbif_global, sep = ",", row.names = FALSE, col.names = TRUE, append = FALSE)
-} else {
-  write.table(occurrences_data_global, gbif_global, sep = ",", row.names = FALSE, col.names = FALSE, append = TRUE)
-}
-
-xy.global<-occurrences_data_global %>% dplyr::select(x,y)
-} else {
-
-xy.global<-read.csv(gbif_global) 
-xy.global<- filter(xy.global, especie==e) %>% select(x,y)  
-  }
-
-## Dataset regional
-## FALTA el filtro de AFLIBER!!
-print("Searching regional")
-# raw_occurrences <- occ_search(scientificName=e,
-#                               country = "ES",
-#                               hasCoordinate = TRUE,
-#                               hasGeospatialIssue= FALSE,
-#                               limit = 8000,
-#                               fields=c("scientificName","decimalLatitude",
-#                                        "decimalLongitude","coordinateUncertaintyInMeters",
-#                                        "eventDate"))
-# 
-# raw_occurrences_data <- raw_occurrences$data
-# raw_occurrences_data <- raw_occurrences_data %>%
-#   dplyr::rename(y=2,x=3,precision=4,date=5) %>%
-#   mutate(date=as.Date(date)) 
-# 
-# filtered_occurrences_data <- raw_occurrences_data %>%  
-#   #filter (precision < 1000) %>%  ##decidir sobre la precisión del filtro
-#   dplyr::select(x,y,date) %>% 
-#   relocate(x, .before=y) %>% 
-# arrange(date)
-
-#xy.regional<-filtered_occurrences_data %>% dplyr::select(x,y)# %>%
-  #st_as_sf(coords = c("x", "y"), crs = geoproj)
-xy.regional <- gbif_descargadas %>% filter(especie==e) %>% 
-  select(x,y)
-#desarrollar la limpieza de coordenadas
-#decidir sobre la imputación de ocurrencias históricas
-## 1.2 Modelización----
-print("nsdm input data")
-nsdm_input <- NSDM.InputData(SpeciesName = e,
-                             spp.data.global = xy.global, 
-                             spp.data.regional = xy.regional,
-                             expl.var.global = expl.var.global,
-                             expl.var.regional = expl.var.regional,
-                             new.env = escenarios,
-                             new.env.names = ssp,
-                             Background.Global = NULL, 
-
-                             Background.Regional = NULL)
-
-print("nsdm finput data")
-nsdm_finput <- NSDM.FormattingData(nsdm_input,
-#OJO modificar número de puntos de acuerdo al número de ocurrencias                                 
-                                   nPoints = nrow(xy.global), # number of background points
-                                   Min.Dist.Global = "resolution",
-                                   Min.Dist.Regional = "resolution",
-                                   Background.method = "random", # method “random" or "stratified” to generate background points 
-                                   save.output = FALSE) #save outputs locally
-print("selecting vars")
-nsdm_selvars <- NSDM.SelectCovariates(nsdm_finput,
-                                      maxncov.Global = "nocorr",   # Max number of covariates to be selected at the global scale
-                                      maxncov.Regional = "nocorr", # Max number of covariates to be selected at the regional scale
-                                      corcut = 0.7, #  correlation threshold
-                                      algorithms = c("glm","gam","rf"),
-                                      ClimaticVariablesBands = NULL, # covariate bands to be excluded in the covariate selection at the regional scale
-                                      save.output = TRUE)
-print("nsdm global")
-nsdm_global <- NSDM.Global(nsdm_selvars,
-                           algorithms = c("GAM","GBM", "RF","GLM"),# Statistical algorithms used for modelling
-                           CV.nb.rep = 10, # number of cross-validation repetitions
-                           CV.perc = 0.8, # percentage of the data will be used for training in each cross-validation fold
-                           metric.select.thresh = 0.7, #  AUC threshold to include replicates in the final ensemble model
-                           CustomModelOptions = NULL, # Allows users to apply custom modelling options. 
-                           save.output = TRUE, 
-                           rm.biomod.folder = TRUE) # Remove the temporary folders created by `biomod2` 
-print("nsdm regional")
-nsdm_regional <- NSDM.Regional(nsdm_selvars,
-                               algorithms = c("GAM","GBM", "RF","GLM"),
-                               CV.nb.rep = 10,
-                               CV.perc = 0.8,
-                               metric.select.thresh = 0.7,
-                               CustomModelOptions = NULL, 
-                               save.output = TRUE,
-                               rm.biomod.folder = TRUE)
-
-print("covariate model")
-nsdm_covariate <- NSDM.Covariate(nsdm_global,
-                                 algorithms = c("GAM","GBM", "RF", "GLM"),
-                                 rm.corr=TRUE,
+  if (!(e %in% modelizadas)){
+    
+    tryCatch({
+      ## 1.1 Búsqueda de GBIF ----
+      print(e)
+      if (!(e %in% descargadas_global)){
+        print("Searching global")
+        raw_occurrences_global <- occ_search(scientificName=e,
+                                             hasCoordinate = TRUE,
+                                             hasGeospatialIssue= FALSE,
+                                             limit = 8000,
+                                             fields=c("scientificName","decimalLatitude",
+                                                      "decimalLongitude","coordinateUncertaintyInMeters",
+                                                      "eventDate"))
+        
+        occurrences_data_global<-raw_occurrences_global$data %>% 
+          dplyr::rename(y=decimalLatitude,x=decimalLongitude,
+                        precision=coordinateUncertaintyInMeters,
+                        date=eventDate,especie=scientificName) %>%
+          mutate(date=as.Date(date)) %>% relocate(x,y,especie,date,precision)
+        
+        occurrences_data_global$especie <- e
+        
+        if (!file.exists(gbif_global)) {
+          write.table(occurrences_data_global, gbif_global, sep = ",", row.names = FALSE, col.names = TRUE, append = FALSE)
+        } else {
+          write.table(occurrences_data_global, gbif_global, sep = ",", row.names = FALSE, col.names = FALSE, append = TRUE)
+        }
+        
+        xy.global<-occurrences_data_global %>% dplyr::select(x,y)
+      } else {
+        xy.global<-read.csv(gbif_global) 
+        xy.global<- filter(xy.global, especie==e) %>% select(x,y)  
+      }
+      
+      ## Dataset regional
+      print("Searching regional")
+      xy.regional <- gbif_descargadas %>% filter(especie==e) %>% 
+        select(x,y)
+      
+      ## 1.2 Modelización ----
+      print("nsdm input data")
+      nsdm_input <- NSDM.InputData(SpeciesName = e,
+                                   spp.data.global = xy.global, 
+                                   spp.data.regional = xy.regional,
+                                   expl.var.global = expl.var.global,
+                                   expl.var.regional = expl.var.regional,
+                                   new.env = escenarios,
+                                   new.env.names = ssp,
+                                   Background.Global = NULL, 
+                                   Background.Regional = NULL)
+      
+      print("nsdm finput data")
+      nsdm_finput <- NSDM.FormattingData(nsdm_input,
+                                         nPoints = nrow(xy.global),
+                                         Min.Dist.Global = "resolution",
+                                         Min.Dist.Regional = "resolution",
+                                         Background.method = "random",
+                                         save.output = FALSE)
+      
+      print("selecting vars")
+      nsdm_selvars <- NSDM.SelectCovariates(nsdm_finput,
+                                            maxncov.Global = "nocorr",
+                                            maxncov.Regional = "nocorr",
+                                            corcut = 0.7,
+                                            algorithms = c("glm","gam","rf"),
+                                            ClimaticVariablesBands = NULL,
+                                            save.output = TRUE)
+      
+      print("nsdm global")
+      nsdm_global <- NSDM.Global(nsdm_selvars,
+                                 algorithms = c("GAM","GBM", "RF","GLM"),
                                  CV.nb.rep = 10,
                                  CV.perc = 0.8,
                                  metric.select.thresh = 0.7,
                                  CustomModelOptions = NULL,
-                                 save.output = TRUE,
+                                 save.output = TRUE, 
                                  rm.biomod.folder = TRUE)
-regional_model<-terra::rast(nsdm_regional$current.projections$Pred)
-plot(regional_model)
-Covariate.model <- terra::rast(nsdm_covariate$current.projections$Pred)
-plot(Covariate.model, main=e)
-points(xy.regional)
-##WRITE RASTER
-##WRITE PROJECTION
-}
+      
+      print("nsdm regional")
+      nsdm_regional <- NSDM.Regional(nsdm_selvars,
+                                     algorithms = c("GAM","GBM", "RF","GLM"),
+                                     CV.nb.rep = 10,
+                                     CV.perc = 0.8,
+                                     metric.select.thresh = 0.7,
+                                     CustomModelOptions = NULL, 
+                                     save.output = TRUE,
+                                     rm.biomod.folder = TRUE)
+      
+      print("covariate model")
+      nsdm_covariate <- NSDM.Covariate(nsdm_global,
+                                       algorithms = c("GAM","GBM", "RF", "GLM"),
+                                       rm.corr=TRUE,
+                                       CV.nb.rep = 10,
+                                       CV.perc = 0.8,
+                                       metric.select.thresh = 0.7,
+                                       CustomModelOptions = NULL,
+                                       save.output = TRUE,
+                                       rm.biomod.folder = TRUE)
+      
+      regional_model<-terra::rast(nsdm_regional$current.projections$Pred)
+      plot(regional_model)
+      Covariate.model <- terra::rast(nsdm_covariate$current.projections$Pred)
+      plot(Covariate.model, main=e)
+      points(xy.regional)
+      
+      # Si llega hasta aquí, lo damos como éxito
+      exitos <- rbind(exitos, data.frame(
+        especie=e, 
+        estado="Modelizada",
+        fecha=Sys.time()
+      ))
+      write.csv(exitos, "~/restauracion/exitos_modelizacion.csv", row.names = FALSE)
+      
+    }, error=function(err){
+      message(paste("⚠️ Error con la especie:", e, "->", err$message))
+      errores <- rbind(errores, data.frame(
+        especie=e, 
+        error=err$message,
+        fecha=Sys.time()
+      ))
+      write.csv(errores, "~/restauracion/errores_modelizacion.csv", row.names = FALSE)
+    })
+    
+  }
 }
 
