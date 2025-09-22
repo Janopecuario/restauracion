@@ -31,7 +31,7 @@ ruta_descargadas<-"P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/308120
 ## 0.2 Carga de predictores----
 setwd("~/restauracion") #moverlo a la red de tragsa
 
-worldclim_vars<-list.files(pattern="\\.tif")
+worldclim_vars<-list.files(pattern="^wc.*\\.tif$")
 
 #correr una vez para toda la sesión
 #lineas para recortar worldclim a escala europea
@@ -81,20 +81,20 @@ variable_names<-names(expl.var.regional)
 env_ssp126 <- rast(paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp126_2041-2060.tif")) %>% 
   crop(extent_regional)
 names(env_ssp126)<-variable_names
-terra::writeRaster(env_ssp126,paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp126_2041-2060.tif"),
-                   overwrite=TRUE)
+# terra::writeRaster(env_ssp126,paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp126_2041-2060.tif"),
+#                    overwrite=TRUE)
 
 env_ssp245 <- rast(paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp245_2041-2060.tif"))%>% 
   crop(extent_regional)
 names(env_ssp245)<-variable_names
-terra::writeRaster(env_ssp245,paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp245_2041-2060.tif"),
-                   overwrite=TRUE)
+# terra::writeRaster(env_ssp245,paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp245_2041-2060.tif"),
+#                    overwrite=TRUE)
 
 env_ssp370 <- rast(paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp370_2041-2060.tif"))%>% 
   crop(extent_regional)
 names(env_ssp370)<-variable_names
-terra::writeRaster(env_ssp370,paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp370_2041-2060.tif"),
-                   overwrite=TRUE)
+# terra::writeRaster(env_ssp370,paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp370_2041-2060.tif"),
+#                    overwrite=TRUE)
 
 env_ssp585 <- rast(paste0(ruta_escenarios,"wc2.1_30s_bioc_ACCESS-CM2_ssp585_2041-2060.tif"))%>% 
   crop(extent_regional)
@@ -221,7 +221,7 @@ nsdm_input <- NSDM.InputData(SpeciesName = e,
 print("nsdm finput data")
 nsdm_finput <- NSDM.FormattingData(nsdm_input,
 #OJO modificar número de puntos de acuerdo al número de ocurrencias                                 
-                                   nPoints = 100, # number of background points
+                                   nPoints = nrow(xy.global), # number of background points
                                    Min.Dist.Global = "resolution",
                                    Min.Dist.Regional = "resolution",
                                    Background.method = "random", # method “random" or "stratified” to generate background points 
