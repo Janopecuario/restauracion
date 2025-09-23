@@ -5,15 +5,15 @@ packages<-c("raster", "biomod2", "dismo","mgcv","terra",
             "tidyverse","rgbif","sabinaNSDM","stringi",
             "CoordinateCleaner","sf","glmnet","data.table","covsel","stars","readxl")
 sapply(packages, require, character.only=T, quietly = FALSE)
-
+setwd("P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC")
 #CRSs por si hay que reproyectar
 UTMproj<-"+proj=utm +zone=30 +ellps=WGS84 +datum=WGS84 +units=m +no_defs"
 geoproj<-"+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
 extent_regional<-extent(c(-10,4.28,34,44.5)) #coordenadas peninsula + NAfrica
 extent_global<-extent(c(-16.47,93.53,18.24,78))
+ruta_worldclim<- "P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/worldclim"
 
 ## 0.1 Rutas globales----
-# Ir metiendo rutas aquí según empecemos a mover los datos
 ## 0.1.1 CORINE LAND COVER background----
 # ruta_clc<-"~/Corine/clc_UTM.tif"
 # m <- matrix(c(
@@ -25,16 +25,15 @@ extent_global<-extent(c(-16.47,93.53,18.24,78))
 # background <-as.data.frame(clc,xy=TRUE) %>% 
 # filter(clc_UTM == 1) %>% select(-c(clc_UTM))
 # write_csv(background,"~/restauracion/background.csv")
-background<-read_csv("~/restauracion/background.csv")
+background<-read_csv("background.csv")
 gbif_global <- "P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC/global_especies_descargadas.csv"
 ruta_descargadas<-"P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC/especies_descargadas.csv"
 ## 0.2 Carga de predictores----
-setwd("~/restauracion") #moverlo a la red de tragsa
-
-worldclim_vars<-list.files(pattern="^wc.*\\.tif$")
+worldclim_vars<-list.files(path="P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/worldclim",
+                           pattern="^wc.*\\.tif$")
 
 #correr una vez para toda la sesión
-#lineas para recortar worldclim a escala europea
+#lineas para recortar worldclim a escala europea, ya realizado
 # for (w in worldclim_vars){
 #   print(w)
 #   bio_temp<-raster(w) %>% crop(y=extent_global)
@@ -43,16 +42,10 @@ worldclim_vars<-list.files(pattern="^wc.*\\.tif$")
 biovars_global<-stack()
 for (w in worldclim_vars){
   print(w)
-  bio_temp<-raster(w)# %>% crop(y=extent_global) #ya cortadas
+  bio_temp<-raster(paste0(ruta_worldclim,"/",w))# %>% crop(y=extent_global) #ya cortadas
   biovars_global<-stack(biovars_global,bio_temp)
 }
-biovars_regional<-stack()
-for (w in worldclim_vars){
-  print(w)
-  bio_temp<-raster(w) %>% crop(y=extent_regional)
-  biovars_regional<-stack(biovars_regional,bio_temp)
-}
-
+biovars_regional<-crop(biovars_global,extent_regional)
 expl.var.global <- terra::rast(biovars_global)
 expl.var.regional <- terra::rast(biovars_regional)
 
@@ -118,7 +111,6 @@ descargadas<-gbif_descargadas$especie %>% unique()
 descargadas_global<-read.csv(gbif_global) #leemos los datos del archivo de ocurrencias globales
 descargadas_global<-descargadas_global$especie%>% unique() #especies que tienen los datos gbif descargados
 
-setwd("~/restauracion")
 limpiar <- c("archivo.variables", 
              "mapa_ensemble", 
              "test_indvar", 
