@@ -143,7 +143,7 @@ exitos <- data.frame(
   fecha = as.POSIXct(character()),
   stringsAsFactors = FALSE
 )
-## 1.2 Bucle por especies ----
+## 1.0 Bucle por especies ----
 for(e in especies){
   if (!(e %in% modelizadas)){
     
@@ -180,7 +180,7 @@ for(e in especies){
         xy.global<- filter(xy.global, especie==e) %>% select(x,y)  
       }
       
-      ## Dataset regional
+      ## Dataset regional ----
       print("Searching regional")
       xy.regional <- gbif_descargadas %>% filter(especie==e) %>% 
         select(x,y)
@@ -203,7 +203,7 @@ for(e in especies){
                                          Min.Dist.Global = "resolution",
                                          Min.Dist.Regional = "resolution",
                                          Background.method = "random",
-                                         save.output = FALSE)
+                                         save.output = TRUE)
       
       print("selecting vars")
       nsdm_selvars <- NSDM.SelectCovariates(nsdm_finput,
@@ -217,7 +217,7 @@ for(e in especies){
       print("nsdm global")
       nsdm_global <- NSDM.Global(nsdm_selvars,
                                  algorithms = c("GAM","GBM", "RF","GLM"),
-                                 CV.nb.rep = 10,
+                                 CV.nb.rep = 4,
                                  CV.perc = 0.8,
                                  metric.select.thresh = 0.7,
                                  CustomModelOptions = NULL,
@@ -227,7 +227,7 @@ for(e in especies){
       print("nsdm regional")
       nsdm_regional <- NSDM.Regional(nsdm_selvars,
                                      algorithms = c("GAM","GBM", "RF","GLM"),
-                                     CV.nb.rep = 10,
+                                     CV.nb.rep = 4,
                                      CV.perc = 0.8,
                                      metric.select.thresh = 0.7,
                                      CustomModelOptions = NULL, 
@@ -238,7 +238,7 @@ for(e in especies){
       nsdm_covariate <- NSDM.Covariate(nsdm_global,
                                        algorithms = c("GAM","GBM", "RF", "GLM"),
                                        rm.corr=TRUE,
-                                       CV.nb.rep = 10,
+                                       CV.nb.rep = 4,
                                        CV.perc = 0.8,
                                        metric.select.thresh = 0.7,
                                        CustomModelOptions = NULL,
@@ -251,7 +251,6 @@ for(e in especies){
       plot(Covariate.model, main=e)
       points(xy.regional)
       
-      # Si llega hasta aquí, lo damos como éxito
       exitos <- rbind(exitos, data.frame(
         especie=e, 
         estado="Modelizada",
