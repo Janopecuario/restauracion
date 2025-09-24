@@ -5,14 +5,17 @@ packages<-c("raster", "biomod2", "dismo","mgcv","terra",
             "tidyverse","rgbif","sabinaNSDM","stringi",
             "CoordinateCleaner","sf","glmnet","data.table","covsel","stars","readxl")
 sapply(packages, require, character.only=T, quietly = FALSE)
-setwd("P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC")
+setwd("P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/Modelos")
 #CRSs por si hay que reproyectar
 UTMproj<-"+proj=utm +zone=30 +ellps=WGS84 +datum=WGS84 +units=m +no_defs"
 geoproj<-"+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
 extent_regional<-extent(c(-10,4.28,34,44.5)) #coordenadas peninsula + NAfrica
 extent_global<-extent(c(-16.47,93.53,18.24,78))
 ruta_worldclim<- "P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/worldclim"
-
+background<-read_csv("background.csv")
+ruta_descargadas_global <- "P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC/global_especies_descargadas.csv"
+ruta_descargadas<-"P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC/especies_descargadas.csv"
+ruta_descargadas<-"P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC/especies_descargadas.csv"
 ## 0.1 Rutas globales----
 ## 0.1.1 CORINE LAND COVER background----
 # ruta_clc<-"~/Corine/clc_UTM.tif"
@@ -25,9 +28,7 @@ ruta_worldclim<- "P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208
 # background <-as.data.frame(clc,xy=TRUE) %>% 
 # filter(clc_UTM == 1) %>% select(-c(clc_UTM))
 # write_csv(background,"~/restauracion/background.csv")
-background<-read_csv("background.csv")
-gbif_global <- "P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC/global_especies_descargadas.csv"
-ruta_descargadas<-"P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC/especies_descargadas.csv"
+
 ## 0.2 Carga de predictores----
 worldclim_vars<-list.files(path="P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/worldclim",
                            pattern="^wc.*\\.tif$")
@@ -104,11 +105,11 @@ escenarios <- list(env_ssp126, env_ssp245, env_ssp370, env_ssp585)
 
 ## 0.4 Carga de los nombres de especies----
 
-ruta_descargadas<-"P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC/especies_descargadas.csv"
+
 gbif_descargadas<-read.csv(ruta_descargadas,sep=",")
 descargadas<-gbif_descargadas$especie %>% unique()
 
-descargadas_global<-read.csv(gbif_global) #leemos los datos del archivo de ocurrencias globales
+descargadas_global<-read.csv(ruta_descargadas_global) #leemos los datos del archivo de ocurrencias globales
 descargadas_global<-descargadas_global$especie%>% unique() #especies que tienen los datos gbif descargados
 
 limpiar <- c("archivo.variables", 
@@ -123,7 +124,7 @@ lista <- read_excel("P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081
          Abundancia = as.factor(Abundancia))
 especies<-lista$Especie %>% unique()
 
-modelizadas<-list.files("~/restauracion/Results/Covariate/Values", ,
+modelizadas<-list.files("P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/Modelos/Values",
                         pattern = "\\.csv$") %>% 
   str_replace_all(pattern="\\.variables.csv|_ensemble.csv|_indvar.csv|_nbestreplicates.csv|_replica.csv",
                   replacement= "") %>%  unique()
@@ -142,6 +143,7 @@ exitos <- data.frame(
   fecha = as.POSIXct(character()),
   stringsAsFactors = FALSE
 )
+## 1.2 Bucle por especies ----
 for(e in especies){
   if (!(e %in% modelizadas)){
     
@@ -174,7 +176,7 @@ for(e in especies){
         
         xy.global<-occurrences_data_global %>% dplyr::select(x,y)
       } else {
-        xy.global<-read.csv(gbif_global) 
+        xy.global<-read.csv(ruta_descargadas_global) 
         xy.global<- filter(xy.global, especie==e) %>% select(x,y)  
       }
       
