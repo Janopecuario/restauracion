@@ -91,6 +91,9 @@ for (h in habitats) {
       if (!"eventDate" %in% names(raw_occurrences_data)) {
         raw_occurrences_data$eventDate <- NA
       }
+      if (!"coordinateUncertaintyInMeters" %in% names(raw_occurrences_data)) {
+        raw_occurrences_data$eventDate <- NA
+      }
       raw_occurrences_data <- raw_occurrences_data %>%
         dplyr::rename(
           especie = 1, 
