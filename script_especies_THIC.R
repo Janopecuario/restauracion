@@ -124,6 +124,7 @@ for (h in habitats) {
   raster::writeRaster(riqueza, paste0("h_", h,"_" ,resolucion,".tif"), overwrite = TRUE)
 }
 
+
 ocurrencias_estructura <- filter(ocurrencias, especie == estructura)
 raster_estructura <- rasterize(ocurrencias_estructura[1:2], y = malla, field = 1, background = 0)
 
