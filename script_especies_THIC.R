@@ -18,11 +18,19 @@ lista <- read_excel("P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081
          Diagnostica = as.factor(Diagnostica), 
          Abundancia = as.factor(Abundancia))
 
+list_EU <- read_excel("P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC/typical_species_2013-2018.xlsx", 
+                      sheet = 2) %>% 
+  filter(country == "ES") %>% 
+  select(3,4) %>% 
+  distinct() %>% 
+  drop_na() %>% rename(Especie=2, Habitat=1)
+  
 resolucion <- 10
-malla <- raster("P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC/ambientes/Tmed.asc") %>% 
+
+malla <- raster("P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/ambientes/TMed.asc") %>% 
   projectRaster(crs = crs(geoproj))  %>% aggregate(fact=resolucion)
 
-habitats <- lista$Habitat %>% unique()
+habitats <- list_EU$Habitat %>% unique()
 
 # log de errores
 error_log <- tibble(
@@ -40,10 +48,12 @@ for (h in habitats) {
     codigoHabitat = vector("character")
   )
   
-  sp_hab <- filter(lista, Habitat == h)
+  sp_hab <- filter(list_EU, Habitat == h)
   species <- sp_hab$Especie %>% unique()
   
   for (especie in species) {
+    gbif_descargadas<-read.csv(ruta_descargadas,sep=",")
+    descargadas<-unique(gbif_descargadas$especie)
     if ((especie %in% descargadas)) {
       print(paste(especie,"already downloaded")) 
       
@@ -62,8 +72,7 @@ for (h in habitats) {
                    hasCoordinate = TRUE,
                    hasGeospatialIssue = FALSE,
                    limit = 8000,
-                   fields=c("scientificName","decimalLatitude",
-                            "decimalLongitude","coordinateUncertaintyInMeters",
+                   fields=c("scientificName","decimalLatitude","decimalLongitude","coordinateUncertaintyInMeters",
                             "eventDate"))
       }, error = function(e) {
         message(paste("Error en", especie, ":", e$message))
@@ -77,10 +86,20 @@ for (h in habitats) {
       
       if (is.null(raw_occurrences) || is.null(raw_occurrences$data)) next
       
-      raw_occurrences_data <- raw_occurrences$data %>%
-        dplyr::rename(especie=1, y = 2, x = 3, 
-                      precision = coordinateUncertaintyInMeters,
-                      date=eventDate)
+      raw_occurrences_data <- raw_occurrences$data 
+      
+      if (!"eventDate" %in% names(raw_occurrences_data)) {
+        raw_occurrences_data$eventDate <- NA
+      }
+      raw_occurrences_data <- raw_occurrences_data %>%
+        dplyr::rename(
+          especie = 1, 
+          y = 2, 
+          x = 3, 
+          precision = coordinateUncertaintyInMeters,
+          date = eventDate
+        )
+      
       raw_occurrences_data$especie <- especie
       
       filtered_occurrences_data <- raw_occurrences_data %>%  
@@ -125,16 +144,6 @@ for (h in habitats) {
 }
 
 
-ocurrencias_estructura <- filter(ocurrencias, especie == estructura)
-raster_estructura <- rasterize(ocurrencias_estructura[1:2], y = malla, field = 1, background = 0)
-
-plot(malla)
-ocurrencias %>% filter(especie == "Meconopsis cambrica") %>% select(x, y) %>% points(col = "red")
-ocurrencias %>% filter(especie == "Ulmus glabra") %>% select(x, y) %>% points(col = "black")
-
-caracter <- raster_estructura * malla
-plot(caracter)
-writeRaster(caracter, "THIC9130.tif", overwrite = TRUE)
 
 # guardar log de errores
 if (nrow(error_log) > 0) {
