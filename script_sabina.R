@@ -1,4 +1,11 @@
 # 0. Constantes globales ----
+library(doParallel)
+n.cores <- parallel::detectCores() - 1
+cl <- makeCluster(n.cores)
+registerDoParallel(cl)
+terraOptions(threads = n.cores)
+
+
 packages<-c("raster", "biomod2", "dismo","mgcv","terra",
             "rasterVis","gstat","shapefiles",
             "sp","ggfortify","reshape","spatialEco",
@@ -15,7 +22,17 @@ ruta_worldclim<- "P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208
 background<-read_csv("background.csv")
 ruta_descargadas_global <- "P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC/global_especies_descargadas.csv"
 ruta_descargadas<-"P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC/especies_descargadas.csv"
-ruta_descargadas<-"P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC/especies_descargadas.csv"
+ruta_lista_descargadas<-"P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC/lista_especies_descargadas.csv"
+
+
+
+setwd("P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/Modelos")
+# ruta_RSA<-"P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/ambientes/RSA_1.asc"
+# ruta_RSB<-"P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/ambientes/RSB_1.asc"
+# ruta_SS<-"P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/ambientes/SS_1.asc"
+# ruta_RC<-"P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/ambientes/Rc_1.asc"
+# ruta_SCE<-"P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/ambientes/SCE_1.asc"
+
 ## 0.1 Rutas globales----
 ## 0.1.1 CORINE LAND COVER background----
 # ruta_clc<-"~/Corine/clc_UTM.tif"
@@ -30,10 +47,11 @@ ruta_descargadas<-"P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/308120
 # write_csv(background,"~/restauracion/background.csv")
 
 ## 0.2 Carga de predictores----
+### 0.2.1 Worldlim global----
 worldclim_vars<-list.files(path="P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/worldclim",
                            pattern="^wc.*\\.tif$")
 
-#correr una vez para toda la sesión
+#correr una vez para toda la sesión----
 #lineas para recortar worldclim a escala europea, ya realizado
 # for (w in worldclim_vars){
 #   print(w)
@@ -46,7 +64,18 @@ for (w in worldclim_vars){
   bio_temp<-raster(paste0(ruta_worldclim,"/",w))# %>% crop(y=extent_global) #ya cortadas
   biovars_global<-stack(biovars_global,bio_temp)
 }
-biovars_regional<-crop(biovars_global,extent_regional)
+### 0.2.2 Worldclim regional y litología ----
+RSA<-raster::raster(ruta_RSA)
+projection(RSA)<-crs(geoproj)
+RSB<-raster::raster(ruta_RSB)
+SS<-raster::raster(ruta_SS)
+RC<-raster::raster(ruta_RC)
+SCE<-raster::raster(ruta_SCE)
+
+
+biovars_regional<-crop(biovars_global,
+                       #extent_regional,
+                       RSA)
 expl.var.global <- terra::rast(biovars_global)
 expl.var.regional <- terra::rast(biovars_regional)
 
@@ -105,7 +134,6 @@ escenarios <- list(env_ssp126, env_ssp245, env_ssp370, env_ssp585)
 
 ## 0.4 Carga de los nombres de especies----
 
-
 gbif_descargadas<-read.csv(ruta_descargadas,sep=",")
 descargadas<-gbif_descargadas$especie %>% unique()
 
@@ -121,10 +149,10 @@ limpiar <- c("archivo.variables",
 lista <- read_excel("P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/THIC/ListadoTipicas.xlsx") %>% 
   mutate(Habitual = as.factor(Habitual),
          Diagnostica = as.factor(Diagnostica), 
-         Abundancia = as.factor(Abundancia))
+         Abundancia = as.factor(Abundancia)) %>% filter(Habitat == '9120')
 especies<-lista$Especie %>% unique()
 
-modelizadas<-list.files("P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/Modelos/Values",
+modelizadas<-list.files("P:/Grupos/Ger_Calidad_Eva_Ambiental_Bio/DpMNatural_TEC/3081208_PN_RESTAURACION/CARTOGRAFÍA/Modelos/Results/Covariate/Values",
                         pattern = "\\.csv$") %>% 
   str_replace_all(pattern="\\.variables.csv|_ensemble.csv|_indvar.csv|_nbestreplicates.csv|_replica.csv",
                   replacement= "") %>%  unique()
@@ -168,10 +196,10 @@ for(e in especies){
         
         occurrences_data_global$especie <- e
         
-        if (!file.exists(gbif_global)) {
-          write.table(occurrences_data_global, gbif_global, sep = ",", row.names = FALSE, col.names = TRUE, append = FALSE)
+        if (!file.exists(ruta_descargadas_global)) {
+          write.table(occurrences_data_global, ruta_descargadas_global, sep = ",", row.names = FALSE, col.names = TRUE, append = FALSE)
         } else {
-          write.table(occurrences_data_global, gbif_global, sep = ",", row.names = FALSE, col.names = FALSE, append = TRUE)
+          write.table(occurrences_data_global, ruta_descargadas_global, sep = ",", row.names = FALSE, col.names = FALSE, append = TRUE)
         }
         
         xy.global<-occurrences_data_global %>% dplyr::select(x,y)
@@ -181,10 +209,58 @@ for(e in especies){
       }
       
       ## Dataset regional ----
-      print("Searching regional")
+      if ((e %in% descargadas)) {
+        print(paste0(e," already downloaded")
       xy.regional <- gbif_descargadas %>% filter(especie==e) %>% 
         select(x,y)
-      
+      } else {
+        print("Searching regional")
+        raw_occurrences <- occ_search(scientificName=e,
+                                      hasCoordinate = TRUE,
+                                      hasGeospatialIssue= FALSE,
+                                      country = "ES",
+                                      limit = 5000,
+                                      fields=c("scientificName","decimalLatitude",
+                                               "decimalLongitude","coordinateUncertaintyInMeters",
+                                               "eventDate"))
+        if (is.null(raw_occurrences) || is.null(raw_occurrences$data)) next
+        
+        raw_occurrences_data <- raw_occurrences$data 
+        
+        if (!"eventDate" %in% names(raw_occurrences_data)) {
+          raw_occurrences_data$eventDate <- NA
+        }
+        if (!"coordinateUncertaintyInMeters" %in% names(raw_occurrences_data)) {
+          raw_occurrences_data$coordinateUncertaintyInMeters <- NA
+        }
+        raw_occurrences_data <- raw_occurrences_data %>%
+          dplyr::rename(
+            especie = 1, 
+            y = 2, 
+            x = 3, 
+            precision = coordinateUncertaintyInMeters,
+            date = eventDate
+          )
+        
+        raw_occurrences_data$especie <- especie
+        
+        filtered_occurrences_data <- raw_occurrences_data %>%  
+          #filter(precision < 10000) %>%  
+          #dplyr::select(x, y) %>% 
+          relocate(x, .before = y) %>% relocate(especie,.after=y) %>% relocate(precision,.after=date)
+        
+        if (!file.exists(ruta_lista_descargadas)) {
+          write.table(especie, ruta_lista_descargadas, sep = ",", row.names = FALSE, col.names = TRUE, append = FALSE)
+        } else {
+          write.table(especie, ruta_lista_descargadas, sep = ",", row.names = FALSE, col.names = FALSE, append = TRUE)
+        }
+        if (!file.exists(ruta_descargadas)) {
+          write_csv(filtered_occurrences_data, ruta_descargadas, append = FALSE)
+        } else {
+          write_csv(filtered_occurrences_data, ruta_descargadas, append = TRUE)
+        }
+        xy.regional <- filtered_occurrences_data %>% dplyr::select(x,y)
+      }  
       ## 1.2 Modelización ----
       print("nsdm input data")
       nsdm_input <- NSDM.InputData(SpeciesName = e,
@@ -248,6 +324,16 @@ for(e in especies){
       regional_model<-terra::rast(nsdm_regional$current.projections$Pred)
       plot(regional_model)
       Covariate.model <- terra::rast(nsdm_covariate$current.projections$Pred)
+      writeRaster(Covariate.model,
+                    filename=paste0(e,"_Covariate_model.tif"),
+                    #format="GTiff",
+                  overwrite=TRUE)
+      
+      nsdm_covariate$current.projections$Pred.bin.ROC %>% terra::unwrap() %>% 
+        writeRaster(filename=paste0(e,"_Covariate_model_bin_ROC.tif"),
+                    #format="GTiff",
+                    overwrite=TRUE)
+
       plot(Covariate.model, main=e)
       points(xy.regional)
       
@@ -268,6 +354,9 @@ for(e in especies){
       write.csv(errores, "~/restauracion/errores_modelizacion.csv", row.names = FALSE)
     })
     
-  }
 }
+  }
 
+#2. Ensamblaje del habitat----
+stopCluster(cl)
+registerDoSEQ()
