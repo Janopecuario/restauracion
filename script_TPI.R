@@ -144,10 +144,11 @@ plot(pc1_r, main="TPI multiescala (PCA - PC1)")
 plot(dominant_scale, main="Escala dominante")
 plot(dog, main="DoG (σ=20 - σ=100 km)")
 
-cat("\n✅ Proceso terminado con éxito.\n")
+cat("\n Proceso terminado con éxito.\n")
 cat("Archivos generados:\n",
     " - TPI_small_z.tif / medium / large\n",
     " - TPI_multiescala_weighted.tif\n",
     " - TPI_multiescala_PC1.tif\n",
     " - TPI_dominant_scale.tif\n",
     " - TPI_DoG_20_100km.tif\n")
+
