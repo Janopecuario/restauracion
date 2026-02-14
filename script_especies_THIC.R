@@ -188,15 +188,15 @@ for (especie in species) {
     
     raw_occurrences_data$especie <- especie
     
-    # 📥 Guardar las ocurrencias descargadas
+    # Guardar las ocurrencias descargadas
     if (!file.exists(ruta_descargadas)) {
       write_csv(filtered_occurrences_data, ruta_descargadas, append = FALSE)
     } else {
       write_csv(filtered_occurrences_data, ruta_descargadas, append = TRUE)
     }
     
-    # 🆕 👉 Añadir la especie recién descargada a la lista de especies descargadas
-    # (si el archivo no existe, lo crea con cabecera)
+    # Añadir la especie recién descargada a la lista de especies descargadas
+    # si el archivo no existe, lo crea con cabecera
     if (!file.exists(ruta_lista_descargadas)) {
       write.table(data.frame(Especie = especie),
                   ruta_lista_descargadas,
@@ -218,4 +218,5 @@ for (especie in species) {
     Sys.sleep(180) # no saturar API
   }
 }
+
 
